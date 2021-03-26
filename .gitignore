@@ -1,0 +1,7 @@
+cache/
+data/
+.vscode/
+.ipynb_checkpoints/
+__pycache__/
+glove.840B.300d.txt
+glove.840B.300d.zip
