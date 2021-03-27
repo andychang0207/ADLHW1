@@ -41,5 +41,5 @@ class RNN(torch.nn.Module):
         logits = self.linear(output)
         # logits = [sent len, batch size, num class]
 
-        return logits
+        return logits[-1]
 
