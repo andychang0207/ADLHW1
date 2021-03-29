@@ -31,7 +31,7 @@ class RNN(torch.nn.Module):
         # TODO: calculate the output dimension of rnn
         raise NotImplementedError
 
-    def forward(self, batch) -> Dict[str, torch.Tensor]:
+    def forward(self, batch) -> torch.Tensor:
         # TODO: implement model forward
         # raise NotImplementedError
 
@@ -40,14 +40,15 @@ class RNN(torch.nn.Module):
         # inputs = [batch size, sent len, emb dim]
         inputs = inputs.permute(1,0,2)
         # inputs = [sent len, batch size, emb dim]
+
         output, hidden = self.rnn(inputs)
         # output = [sent len, batch size, direction * hidden size]
 
-        logits = self.linear(output)
-        # logits = [sent len, batch size, num class]
+        logits = self.linear(output[-1])
+        # logits = [batch size, num class]
 
         # 回傳最後一個 time step 的 output [batch size, num class]
-        return logits[-1]
+        return logits
     
     def cal_loss(self, pred, target):
         """

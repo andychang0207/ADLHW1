@@ -104,13 +104,13 @@ def main(args):
             with torch.no_grad():
                 pred = model(batch)
                 ce_loss = model.cal_loss(pred,labels)
-            total_epoch_loss += ce_loss.detach().cpu().item() * len(batch)
-        total_epoch_loss = total_epoch_loss / len(eval_set)
+            total_epoch_loss += ce_loss.detach().cpu().item()
+        total_epoch_loss = total_epoch_loss / (len(eval_set)/args.batch_size)
         loss_record['dev'].append(total_epoch_loss)
         if total_epoch_loss < min_ce:
             # Save model if your model improved
             min_ce = total_epoch_loss
-            print('Saving model (epoch = {:4d}, loss = {:.4f})'
+            print('Saving model (epoch = {:4d}, val_loss = {:.4f})'
                 .format(epoch + 1, min_ce))
             torch.save(model.state_dict(), str(args.ckpt_dir / 'rnn/model.pth'))  # Save model to specified path
     print('Finished training')
