@@ -14,12 +14,17 @@ class RNN(torch.nn.Module):
         bidirectional: bool,
         num_class: int,
     ) -> None:
-        super(SeqClassifier, self).__init__()
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.num_class = num_class
         self.embed = Embedding.from_pretrained(embeddings, freeze=False)
-        self.rnn = torch.nn.RNN(input_size=300,hidden_size=hidden_size,num_layers=num_layers,bidirectional=bidirectional,dropout=dropout)
-        dirt = 2 if bidirectional else 1
-        self.linear = torch.nn.Linear(hidden_size=dirt*hidden_size,num_class=num_class) 
-        
+        self.rnn = torch.nn.RNN(input_size=300,hidden_size=self.hidden_size,num_layers=self.num_layers,bidirectional=self.bidirectional,dropout=self.dropout)
+        dirt = 2 if self.bidirectional else 1
+        self.linear = torch.nn.Linear(in_features=dirt*self.hidden_size,out_features=self.num_class) 
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
 
     @property
     def encoder_output_size(self) -> int:
@@ -41,5 +46,11 @@ class RNN(torch.nn.Module):
         logits = self.linear(output)
         # logits = [sent len, batch size, num class]
 
+        # 回傳最後一個 time step 的 output [batch size, num class]
         return logits[-1]
-
+    
+    def cal_loss(self, pred, target):
+        """
+        計算 loss
+        """
+        return self.criterion(pred, target)

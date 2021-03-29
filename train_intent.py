@@ -8,6 +8,8 @@ import torch
 from tqdm import trange
 from torch.utils.data import DataLoader
 
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
 from models.RNN import RNN
 from dataset import SeqClsDataset
 from utils import Vocab
@@ -37,10 +39,12 @@ def main(args):
     train_set = DataLoader(
         dataset=datasets[TRAIN],
         batch_size=args.batch_size,
+        collate_fn=datasets[TRAIN].collate_fn,
         shuffle=True)
     eval_set = DataLoader(
         dataset=datasets[DEV],
         batch_size=args.batch_size,
+        collate_fn=datasets[DEV].collate_fn,
         shuffle=True)
 
     # 做好的詞彙和 word vector 對應
@@ -57,27 +61,77 @@ def main(args):
     # TODO: init optimizer
     optimizer = getattr(torch.optim,args.opt)(model.parameters(),lr=args.lr)
 
-
+    min_ce = 1000.
+    loss_record = {'train':[],'dev':[]}
     epoch_pbar = trange(args.num_epoch, desc="Epoch")
     for epoch in epoch_pbar:
         # TODO: Training loop - iterate over train dataloader and update model weights
         # change model to train mode
-        model.train()
-        for batch in train_set:
-            batch_tmp = []
-            datapoints = batch['text']
-            for s in datapoints:
-                s_list = s.split(' ')
-                batch_tmp.append(s_list)
-            batch_new = vocab.encode_batch(batch_tmp)
-            batch_new = torch.LongTensor(batch_new)
-            optimizer.zero_grad()               # set gradient to zero
-            
-        # TODO: Evaluation loop - calculate accuracy and save model weights
-        pass
 
+        model.train()
+        for batch,labels in train_set:
+            # batch_tmp = []
+            # datapoints = batch['text']
+            # labels = batch['intent']
+            # for s in datapoints:
+            #     s_list = s.split(' ')
+            #     batch_tmp.append(s_list)
+            # batch_new = vocab.encode_batch(batch_tmp,to_len=28)
+            # batch_new = torch.LongTensor(batch_new)
+
+            # set gradient to zero
+            optimizer.zero_grad()
+            # move data to device (cpu/cuda)
+            batch, labels = batch.to(args.device), labels.to(args.device)
+            # forward pass (compute output)
+            pred = model(batch)
+            # compute loss
+            ce_loss = model.cal_loss(pred, labels)
+            # compute gradient (backpropagation)
+            ce_loss.backward()
+            # update model with optimizer
+            optimizer.step()
+            # record loss
+            loss_record['train'].append(ce_loss.detach().cpu().item())
+        
+        # TODO: Evaluation loop - calculate accuracy and save model weights
+        # change model to evalutation mode
+        model.eval()
+        total_epoch_loss = 0
+        for batch, labels in eval_set:
+            batch, labels = batch.to(args.device), labels.to(args.device)
+            # 當我們在做evaluating的時候（不需要計算導數），我們可以將推斷（inference）的代碼包裹在with torch.no_grad():之中，以達到暫時不追踪網絡參數中的導數的目的，總之是為了減少可能存在的計算和內存消耗
+            with torch.no_grad():
+                pred = model(batch)
+                ce_loss = model.cal_loss(pred,labels)
+            total_epoch_loss += ce_loss.detach().cpu().item() * len(batch)
+        total_epoch_loss = total_epoch_loss / len(eval_set)
+        loss_record['dev'].append(total_epoch_loss)
+        if total_epoch_loss < min_ce:
+            # Save model if your model improved
+            min_ce = total_epoch_loss
+            print('Saving model (epoch = {:4d}, loss = {:.4f})'
+                .format(epoch + 1, min_ce))
+            torch.save(model.state_dict(), str(args.ckpt_dir / 'rnn/model.pth'))  # Save model to specified path
+    print('Finished training')
+    plot_learning_curve(loss_record,str(args.fig_dir / 'rnn.jpg'),'RNN model')
     # TODO: Inference on test set
 
+def plot_learning_curve(loss_record, file_path,title=''):
+    ''' Plot learning curve of your model (train & dev loss) '''
+    total_steps = len(loss_record['train'])
+    x_1 = range(total_steps)
+    x_2 = x_1[::len(loss_record['train']) // len(loss_record['dev'])]
+    figure(figsize=(6, 4))
+    plt.plot(x_1, loss_record['train'], c='tab:red', label='train')
+    plt.plot(x_2, loss_record['dev'], c='tab:cyan', label='dev')
+    plt.xlabel('Training steps')
+    plt.ylabel('Cross Entropy loss')
+    plt.title('Learning curve of {}'.format(title))
+    plt.legend()
+    plt.savefig(file_path)
+
+    
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
@@ -104,6 +158,12 @@ def parse_args() -> Namespace:
         type=Path,
         help="Directory to save the model file.",
         default="./ckpt/intent/",
+    )
+    parser.add_argument(
+        "--fig_dir",
+        type=Path,
+        help="Directory to save the image.",
+        default="./fig/intent/",
     )
 
     # data
@@ -135,4 +195,5 @@ def parse_args() -> Namespace:
 if __name__ == "__main__":
     args = parse_args()
     args.ckpt_dir.mkdir(parents=True, exist_ok=True)
+    args.fig_dir.mkdir(parents=True, exist_ok=True)
     main(args)
