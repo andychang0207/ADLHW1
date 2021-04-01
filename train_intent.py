@@ -72,7 +72,6 @@ def main(args):
     min_ce = 1000.
     loss_record = {'train':[],'dev':[]}
     acc_record = {'train':[],'dev':[]}
-    # 測試用
     loss_dev_record = []
     epoch_pbar = trange(args.num_epoch, desc="Epoch")
     for epoch in epoch_pbar:
@@ -82,14 +81,6 @@ def main(args):
         total_epoch_acc = 0
         model.train()
         for batch, labels, id in train_set:
-            # batch_tmp = []
-            # datapoints = batch['text']
-            # labels = batch['intent']
-            # for s in datapoints:
-            #     s_list = s.split(' ')
-            #     batch_tmp.append(s_list)
-            # batch_new = vocab.encode_batch(batch_tmp,to_len=28)
-            # batch_new = torch.LongTensor(batch_new)
 
             # set gradient to zero
             optimizer.zero_grad()
@@ -141,34 +132,7 @@ def main(args):
     print('Finished training')
     plot_learning_curve(loss_record,'Cross Entropy Loss',str(args.fig_dir / (args.model_name+'2_loss.jpg')),(args.model_name+' model'))
     plot_learning_curve(acc_record,'Accuracy',str(args.fig_dir / (args.model_name+'2_acc.jpg')),(args.model_name+' model'))
-    # 測試 eval 預測出甚麼
-    # with open('./test2_train.csv','w') as f:
-    #     writer = csv.writer(f)
-    #     writer.writerow(['epoch','loss'])
-    #     for i,p in enumerate(loss_record['train']):
-    #         writer.writerow([i,p])
-    # with open('./test2_dev.csv','w') as f:
-    #     writer = csv.writer(f)
-    #     writer.writerow(['epoch','loss'])
-    #     for i,p in enumerate(loss_dev_record):
-    #         writer.writerow([i,p])
-    # out = []
-    # id_out = []
-    # model.eval()
-    # for batch, labels, id, intent in eval_set:
-    #     batch = batch.to(args.device)
-    #     with torch.no_grad():
-    #         pred = model(batch)
-    #         out.append(pred.detach().cpu())
-    #         for i in id:
-    #             id_out.append(i)
-    # out = torch.cat(out, dim = 0).numpy()
-    # print(len(out))
-    # with open('./test.csv','w') as f:
-    #     writer = csv.writer(f)
-    #     writer.writerow(['id', 'tested_positive'])
-    #     for i , p in zip(id_out,out):
-    #         writer.writerow([i,p])
+    
     # TODO: Inference on test set
 
 # 畫圖用

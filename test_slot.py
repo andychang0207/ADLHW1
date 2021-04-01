@@ -3,25 +3,24 @@ import pickle
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import SeqClsDataset
-from models.LSTM import LSTM
+from dataset import TokenClsDataset
+from models.BILSTMCRF.BILSTM import BiRnnCrf
 from utils import Vocab
-
 
 def main(args):
     with open(args.cache_dir / "vocab.pkl", "rb") as f:
         vocab: Vocab = pickle.load(f)
-
-    intent_idx_path = args.cache_dir / "intent2idx.json"
-    intent2idx: Dict[str, int] = json.loads(intent_idx_path.read_text())
-    idx2label: Dict[int, str] = {idx: intent for intent, idx in intent2idx.items()}
+    
+    tag_idx_path = args.cache_dir / "tag2idx.json"
+    tag2idx: Dict[str, int] = json.loads(tag_idx_path.read_text())
+    idx2label: Dict[int, str] = {idx: tag for tag, idx in tag2idx.items()}
     data = json.loads(args.test_file.read_text())
-    dataset = SeqClsDataset(data, vocab, intent2idx, args.max_len,'test')
-    # TODO: crecate DataLoader for test dataset
+    dataset = TokenClsDataset(data, vocab, tag2idx, args.max_len,'test')
     test_set = DataLoader(
         dataset=dataset,
         batch_size=args.batch_size,
@@ -30,77 +29,69 @@ def main(args):
         )
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
 
-    model = LSTM(
+    model = BiRnnCrf(
+        9,
         embeddings,
-        args.hidden_size,
-        args.num_layers,
-        args.dropout,
-        args.bidirectional,
-        dataset.num_classes,
+        args.hidden_dim,
+        args.num_layers
     ).to(args.device)
-    
 
-    ckpt = torch.load(str(args.ckpt_path / (args.model_name +'2.pth')))
-    # load weights into model
+    ckpt = torch.load(str(args.ckpt_path / (args.model_name + '.pth')))
+
     model.load_state_dict(ckpt)
-    # TODO: predict dataset
     model.eval()
     preds = []
     index = []
     for batch, id in test_set:
         batch = batch.to(args.device)
         with torch.no_grad():
-            pred = model(batch)
-            # [batch size, num classes]
-            pred = torch.argmax(pred,dim = 1)
-            # pred = [batch size]
-            preds.append(pred.detach().cpu())
+            _, pred = model(batch)
+            # pred [batch size, seq size(each different)]
+            # preds [datapoints size, seq size(each different)]
+            preds.extend(pred)
+            # index [datapoints size]
             index.extend(id)
-    # preds = [num epoch, batch size]
-    preds = torch.cat(preds, dim = 0).numpy()
-    # preds = [datapoints size]
-    # index = [batch size]
-    # transform preds idx to labels
+    # preds [datapoints size, seq size]
     pred_labels = []
-    for idx in preds:
-        pred_labels.append(idx2label[idx])
-    # TODO: write prediction to file (args.pred_file)
-    d = {'id':index,'intent':pred_labels}
+    for idx_list in preds:
+        tags_list = []
+        for idx in idx_list:
+            tags_list.append(idx2label[idx])
+        pred_labels.append(tags_list)
+    d = {'id':index,'tags':pred_labels}
     df = pd.DataFrame(data=d)
     df.to_csv(str(args.pred_file),index=False)
     print("Finish prediction")
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument("--model_name",type=str,help="model name",default="LSTM")
+    parser.add_argument("--model_name",type=str,help="model name",default="BILSTMCRF")
     parser.add_argument(
         "--test_file",
         type=Path,
         help="Path to the test file.",
-        default="./data/intent/test.json"
+        default="./data/slot/test.json"
     )
     parser.add_argument(
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="./cache/slot/",
     )
     parser.add_argument(
         "--ckpt_path",
         type=Path,
         help="Path to model checkpoint.",
-        default="./ckpt/intent/"
+        default="./ckpt/slot/"
     )
-    parser.add_argument("--pred_file", type=Path, default="./pred_intent.csv")
+    parser.add_argument("--pred_file", type=Path, default="./pred_slot.csv")
 
     # data
     parser.add_argument("--max_len", type=int, default=128)
 
     # model
-    parser.add_argument("--hidden_size", type=int, default=512)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--bidirectional", type=bool, default=True)
+    parser.add_argument("--hidden_dim", type=int, default=512)
+    parser.add_argument("--num_layers", type=int, default=1)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
@@ -110,7 +101,6 @@ def parse_args() -> Namespace:
     )
     args = parser.parse_args()
     return args
-
 
 if __name__ == "__main__":
     args = parse_args()

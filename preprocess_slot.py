@@ -23,8 +23,11 @@ def main(args):
         dataset_path = args.data_dir / f"{split}.json"
         dataset = json.loads(dataset_path.read_text())
         logging.info(f"Dataset loaded at {str(dataset_path.resolve())}")
-
+        # instance["tags"] : List[str]
+        # 計算出現過的 tag 集合 : 9種
         tags.update({tag for instance in dataset for tag in instance["tags"]})
+        # instance["tokens"] : List[str]
+        # 計算出現過的詞彙
         words.update([token for instance in dataset for token in instance["tokens"]])
 
     tag2idx = {tag: i for i, tag in enumerate(tags)}
