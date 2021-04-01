@@ -24,6 +24,7 @@ class RNN(torch.nn.Module):
         self.rnn = torch.nn.RNN(input_size=300,hidden_size=self.hidden_size,num_layers=self.num_layers,bidirectional=self.bidirectional,dropout=self.dropout)
         dirt = 2 if self.bidirectional else 1
         self.linear = torch.nn.Linear(in_features=dirt*self.hidden_size,out_features=self.num_class) 
+        self.softmax = torch.nn.Softmax(dim=1) # softmax num class
         self.criterion = torch.nn.CrossEntropyLoss(reduction='mean')
 
     @property
@@ -40,15 +41,15 @@ class RNN(torch.nn.Module):
         # inputs = [batch size, sent len, emb dim]
         inputs = inputs.permute(1,0,2)
         # inputs = [sent len, batch size, emb dim]
-
+        
         output, hidden = self.rnn(inputs)
         # output = [sent len, batch size, direction * hidden size]
-
+        
         logits = self.linear(output[-1])
         # logits = [batch size, num class]
-
+        
         # 回傳最後一個 time step 的 output [batch size, num class]
-        return logits
+        return self.softmax(logits)
     
     def cal_loss(self, pred, target):
         """

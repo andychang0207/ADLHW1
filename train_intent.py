@@ -4,13 +4,16 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
 import numpy as np
+import pandas as pd
 import torch
 from tqdm import trange
 from torch.utils.data import DataLoader
-
+import csv
+from customerror import InvalidModelName
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
 from models.RNN import RNN
+from models.LSTM import LSTM
 from dataset import SeqClsDataset
 from utils import Vocab
 
@@ -32,7 +35,7 @@ def main(args):
     data_paths = {split: args.data_dir / f"{split}.json" for split in SPLITS}
     data = {split: json.loads(path.read_text()) for split, path in data_paths.items()}
     datasets: Dict[str, SeqClsDataset] = {
-        split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len)
+        split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len, split)
         for split, split_data in data.items()
     }
     # TODO: crecate DataLoader for train / dev datasets
@@ -56,20 +59,29 @@ def main(args):
     torch.manual_seed(args.rand_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.rand_seed)
-    model = RNN(embeddings,args.hidden_size,args.num_layers,args.dropout,args.bidirectional,150).to(args.device)
-
+    if args.model_name == "RNN":
+        model = RNN(embeddings,args.hidden_size,args.num_layers,args.dropout,args.bidirectional,150).to(args.device)
+    elif args.model_name == "LSTM":
+        model = LSTM(embeddings,args.hidden_size,args.num_layers,args.dropout,args.bidirectional,150).to(args.device)
+    else:
+        raise InvalidModelName("No such model "+ args.model_name)
+    print(model)
     # TODO: init optimizer
     optimizer = getattr(torch.optim,args.opt)(model.parameters(),lr=args.lr)
 
     min_ce = 1000.
     loss_record = {'train':[],'dev':[]}
+    acc_record = {'train':[],'dev':[]}
+    # 測試用
+    loss_dev_record = []
     epoch_pbar = trange(args.num_epoch, desc="Epoch")
     for epoch in epoch_pbar:
         # TODO: Training loop - iterate over train dataloader and update model weights
         # change model to train mode
-
+        total_epoch_loss = 0
+        total_epoch_acc = 0
         model.train()
-        for batch,labels in train_set:
+        for batch, labels, id in train_set:
             # batch_tmp = []
             # datapoints = batch['text']
             # labels = batch['intent']
@@ -87,54 +99,104 @@ def main(args):
             pred = model(batch)
             # compute loss
             ce_loss = model.cal_loss(pred, labels)
+            # compute acc
+            acc = cal_accuracy(pred,labels)
             # compute gradient (backpropagation)
             ce_loss.backward()
             # update model with optimizer
             optimizer.step()
             # record loss
-            loss_record['train'].append(ce_loss.detach().cpu().item())
-        
+            total_epoch_loss += ce_loss.detach().cpu().item() * len(batch)
+            # record acc
+            total_epoch_acc += acc.detach().cpu().item() * len(batch)
+
+        total_epoch_loss = total_epoch_loss / len(train_set.dataset)
+        total_epoch_acc = total_epoch_acc / len(train_set.dataset)
+        loss_record['train'].append(total_epoch_loss)
+        acc_record['train'].append(total_epoch_acc)
         # TODO: Evaluation loop - calculate accuracy and save model weights
         # change model to evalutation mode
         model.eval()
         total_epoch_loss = 0
-        for batch, labels in eval_set:
+        total_epoch_acc = 0
+        for batch, labels, id in eval_set:
             batch, labels = batch.to(args.device), labels.to(args.device)
             # 當我們在做evaluating的時候（不需要計算導數），我們可以將推斷（inference）的代碼包裹在with torch.no_grad():之中，以達到暫時不追踪網絡參數中的導數的目的，總之是為了減少可能存在的計算和內存消耗
             with torch.no_grad():
                 pred = model(batch)
                 ce_loss = model.cal_loss(pred,labels)
-            total_epoch_loss += ce_loss.detach().cpu().item()
-        total_epoch_loss = total_epoch_loss / (len(eval_set)/args.batch_size)
+                acc = cal_accuracy(pred,labels)
+            total_epoch_loss += ce_loss.detach().cpu().item() * len(batch)
+            total_epoch_acc += acc.detach().cpu().item() * len(batch)
+        total_epoch_loss = total_epoch_loss / len(eval_set.dataset)
+        total_epoch_acc = total_epoch_acc / len(eval_set.dataset)
         loss_record['dev'].append(total_epoch_loss)
+        acc_record['dev'].append(total_epoch_acc)
         if total_epoch_loss < min_ce:
             # Save model if your model improved
             min_ce = total_epoch_loss
             print('Saving model (epoch = {:4d}, val_loss = {:.4f})'
                 .format(epoch + 1, min_ce))
-            torch.save(model.state_dict(), str(args.ckpt_dir / 'rnn/model.pth'))  # Save model to specified path
+            torch.save(model.state_dict(), str(args.ckpt_dir / (args.model_name+'2.pth')))  # Save model to specified path
     print('Finished training')
-    plot_learning_curve(loss_record,str(args.fig_dir / 'rnn.jpg'),'RNN model')
+    plot_learning_curve(loss_record,'Cross Entropy Loss',str(args.fig_dir / (args.model_name+'2_loss.jpg')),(args.model_name+' model'))
+    plot_learning_curve(acc_record,'Accuracy',str(args.fig_dir / (args.model_name+'2_acc.jpg')),(args.model_name+' model'))
+    # 測試 eval 預測出甚麼
+    # with open('./test2_train.csv','w') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerow(['epoch','loss'])
+    #     for i,p in enumerate(loss_record['train']):
+    #         writer.writerow([i,p])
+    # with open('./test2_dev.csv','w') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerow(['epoch','loss'])
+    #     for i,p in enumerate(loss_dev_record):
+    #         writer.writerow([i,p])
+    # out = []
+    # id_out = []
+    # model.eval()
+    # for batch, labels, id, intent in eval_set:
+    #     batch = batch.to(args.device)
+    #     with torch.no_grad():
+    #         pred = model(batch)
+    #         out.append(pred.detach().cpu())
+    #         for i in id:
+    #             id_out.append(i)
+    # out = torch.cat(out, dim = 0).numpy()
+    # print(len(out))
+    # with open('./test.csv','w') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerow(['id', 'tested_positive'])
+    #     for i , p in zip(id_out,out):
+    #         writer.writerow([i,p])
     # TODO: Inference on test set
 
-def plot_learning_curve(loss_record, file_path,title=''):
+# 畫圖用
+def plot_learning_curve(record,chart_type,file_path,title=''):
     ''' Plot learning curve of your model (train & dev loss) '''
-    total_steps = len(loss_record['train'])
+    total_steps = len(record['train'])
     x_1 = range(total_steps)
-    x_2 = x_1[::len(loss_record['train']) // len(loss_record['dev'])]
+    x_2 = x_1[::len(record['train']) // len(record['dev'])]
     figure(figsize=(6, 4))
-    plt.plot(x_1, loss_record['train'], c='tab:red', label='train')
-    plt.plot(x_2, loss_record['dev'], c='tab:cyan', label='dev')
-    plt.xlabel('Training steps')
-    plt.ylabel('Cross Entropy loss')
+    plt.plot(x_1, record['train'], c='tab:red', label='train')
+    plt.plot(x_2, record['dev'], c='tab:cyan', label='dev')
+    plt.xlabel('epoch')
+    plt.ylabel(chart_type)
     plt.title('Learning curve of {}'.format(title))
     plt.legend()
     plt.savefig(file_path)
 
-    
+def cal_accuracy(pred, target):
+    classes = torch.argmax(pred,1)
+    return torch.mean((classes==target).float())
+
+
+
+# input 用
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
+    parser.add_argument("--model_name",type=str,help="model name",default="LSTM")
     parser.add_argument(
         "--rand_seed",
         type=int,
@@ -186,7 +248,7 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
-    parser.add_argument("--num_epoch", type=int, default=100)
+    parser.add_argument("--num_epoch",help="epoch", type=int, default=100)
 
     args = parser.parse_args()
     return args
