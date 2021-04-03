@@ -1,1 +1,1 @@
-python3.8 test_intent.py --test_file "${1}" --ckpt_path ckpt/intent/LSTM2.pth --pred_file "${2}"
+python3.8 test_intent.py --test_file "${1}" --ckpt_path ./LSTM4.pth --pred_file "${2}"
