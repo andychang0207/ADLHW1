@@ -3,10 +3,10 @@ import pickle
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
-import pandas as pd
+# import pandas as pd 不能用
 import torch
 from torch.utils.data import DataLoader
-
+import csv
 from dataset import SeqClsDataset
 from models.LSTM import LSTM
 from utils import Vocab
@@ -40,7 +40,7 @@ def main(args):
     ).to(args.device)
     
 
-    ckpt = torch.load(str(args.ckpt_path / (args.model_name +'2.pth')))
+    ckpt = torch.load(args.ckpt_path)
     # load weights into model
     model.load_state_dict(ckpt)
     # TODO: predict dataset
@@ -65,14 +65,19 @@ def main(args):
     for idx in preds:
         pred_labels.append(idx2label[idx])
     # TODO: write prediction to file (args.pred_file)
-    d = {'id':index,'intent':pred_labels}
-    df = pd.DataFrame(data=d)
-    df.to_csv(str(args.pred_file),index=False)
+    # d = {'id':index,'intent':pred_labels}
+    with open(args.pred_file,'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(['id', 'intent'])
+        for i, p in zip(index,pred_labels):
+            writer.writerow([i,p])
+    # 不能用 pd
+    # df = pd.DataFrame(data=d)
+    # df.to_csv(str(args.pred_file),index=False)
     print("Finish prediction")
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument("--model_name",type=str,help="model name",default="LSTM")
     parser.add_argument(
         "--test_file",
         type=Path,
@@ -89,7 +94,7 @@ def parse_args() -> Namespace:
         "--ckpt_path",
         type=Path,
         help="Path to model checkpoint.",
-        default="./ckpt/intent/"
+        default="./ckpt/intent/LSTM2.pth"
     )
     parser.add_argument("--pred_file", type=Path, default="./pred_intent.csv")
 
@@ -99,7 +104,7 @@ def parse_args() -> Namespace:
     # model
     parser.add_argument("--hidden_size", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.5)
     parser.add_argument("--bidirectional", type=bool, default=True)
 
     # data loader

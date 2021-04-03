@@ -127,10 +127,10 @@ class TokenClsDataset(Dataset):
                 new_tags = []
                 for tag in tags:
                     new_tags.append(self.label2idx(tag))
-                new_tags = new_tags + [8] * (35 - len(new_tags))
-                labels_tmp.append(new_tags)
+                new_tags_pad = new_tags + [8] * (35 - len(new_tags))
+                labels_tmp.append(new_tags_pad)
             labels_new = torch.LongTensor(labels_tmp)
-            return batch_new, labels_new, id
+            return batch_new, labels_new, id, labels
         else:
             return batch_new, id
 

@@ -4,7 +4,7 @@ from .CRF import CRF
 
 
 class BiRnnCrf(nn.Module):
-    def __init__(self, tagset_size, embeddings, hidden_dim, num_rnn_layers=1, rnn="lstm"):
+    def __init__(self, tagset_size, embeddings, hidden_dim, dropout , num_rnn_layers=1, rnn="lstm"):
         super(BiRnnCrf, self).__init__()
         self.hidden_dim = hidden_dim
         self.tagset_size = tagset_size
@@ -12,7 +12,7 @@ class BiRnnCrf(nn.Module):
         self.embedding = nn.Embedding.from_pretrained(embeddings, freeze=False)
         RNN = nn.LSTM if rnn == "lstm" else nn.GRU
         self.rnn = RNN(300, hidden_dim // 2, num_layers=num_rnn_layers,
-                       bidirectional=True, batch_first=True)
+                       bidirectional=True, dropout=dropout, batch_first=True)
         self.crf = CRF(hidden_dim, self.tagset_size)
 
     def __build_features(self, sentences):

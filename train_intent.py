@@ -4,7 +4,6 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
 import numpy as np
-import pandas as pd
 import torch
 from tqdm import trange
 from torch.utils.data import DataLoader
@@ -61,7 +60,7 @@ def main(args):
         torch.cuda.manual_seed_all(args.rand_seed)
     if args.model_name == "RNN":
         model = RNN(embeddings,args.hidden_size,args.num_layers,args.dropout,args.bidirectional,150).to(args.device)
-    elif args.model_name == "LSTM":
+    elif args.model_name[:4] == "LSTM":
         model = LSTM(embeddings,args.hidden_size,args.num_layers,args.dropout,args.bidirectional,150).to(args.device)
     else:
         raise InvalidModelName("No such model "+ args.model_name)
@@ -128,10 +127,10 @@ def main(args):
             min_ce = total_epoch_loss
             print('Saving model (epoch = {:4d}, val_loss = {:.4f})'
                 .format(epoch + 1, min_ce))
-            torch.save(model.state_dict(), str(args.ckpt_dir / (args.model_name+'2.pth')))  # Save model to specified path
+            torch.save(model.state_dict(), str(args.ckpt_dir / (args.model_name+'.pth')))  # Save model to specified path
     print('Finished training')
-    plot_learning_curve(loss_record,'Cross Entropy Loss',str(args.fig_dir / (args.model_name+'2_loss.jpg')),(args.model_name+' model'))
-    plot_learning_curve(acc_record,'Accuracy',str(args.fig_dir / (args.model_name+'2_acc.jpg')),(args.model_name+' model'))
+    plot_learning_curve(loss_record,'Cross Entropy Loss',str(args.fig_dir / (args.model_name+'_loss.jpg')),(args.model_name+' model'))
+    plot_learning_curve(acc_record,'Accuracy',str(args.fig_dir / (args.model_name+'_acc.jpg')),(args.model_name+' model'))
     
     # TODO: Inference on test set
 
@@ -198,7 +197,7 @@ def parse_args() -> Namespace:
     # model
     parser.add_argument("--hidden_size", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.5)
     parser.add_argument("--bidirectional", type=bool, default=True)
 
     # optimizer
@@ -212,7 +211,7 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
-    parser.add_argument("--num_epoch",help="epoch", type=int, default=100)
+    parser.add_argument("--num_epoch",help="epoch", type=int, default=200)
 
     args = parser.parse_args()
     return args

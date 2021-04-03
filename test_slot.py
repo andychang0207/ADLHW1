@@ -4,7 +4,8 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
 import numpy as np
-import pandas as pd
+# import pandas as pd 不能用
+import csv
 import torch
 from torch.utils.data import DataLoader
 
@@ -33,10 +34,11 @@ def main(args):
         9,
         embeddings,
         args.hidden_dim,
+        args.dropout,
         args.num_layers
     ).to(args.device)
 
-    ckpt = torch.load(str(args.ckpt_path / (args.model_name + '.pth')))
+    ckpt = torch.load(args.ckpt_path)
 
     model.load_state_dict(ckpt)
     model.eval()
@@ -58,14 +60,20 @@ def main(args):
         for idx in idx_list:
             tags_list.append(idx2label[idx])
         pred_labels.append(tags_list)
-    d = {'id':index,'tags':pred_labels}
-    df = pd.DataFrame(data=d)
-    df.to_csv(str(args.pred_file),index=False)
+    # 不能用 pd
+    # d = {'id':index,'tags':pred_labels}
+    # df = pd.DataFrame(data=d)
+    # df.to_csv(str(args.pred_file),index=False)
+    with open(args.pred_file,'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(['id','tags'])
+        for i, t in zip(index,pred_labels):
+            s = " ".join(t)
+            writer.writerow([i,s])
     print("Finish prediction")
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument("--model_name",type=str,help="model name",default="BILSTMCRF")
     parser.add_argument(
         "--test_file",
         type=Path,
@@ -82,7 +90,7 @@ def parse_args() -> Namespace:
         "--ckpt_path",
         type=Path,
         help="Path to model checkpoint.",
-        default="./ckpt/slot/"
+        default="./ckpt/slot/BILSTMCRF.pth"
     )
     parser.add_argument("--pred_file", type=Path, default="./pred_slot.csv")
 
@@ -92,7 +100,7 @@ def parse_args() -> Namespace:
     # model
     parser.add_argument("--hidden_dim", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=1)
-
+    parser.add_argument("--dropout", type=float, default=0.)
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
 
