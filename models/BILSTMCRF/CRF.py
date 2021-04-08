@@ -117,7 +117,7 @@ class CRF(nn.Module):
         """
         B, L, C = features.shape
 
-        bps = torch.zeros(B, L, C, dtype=torch.long, device=features.device)  # back pointers
+        bps = torch.zeros(features.shape[0], features.shape[1], features.shape[2], dtype=torch.long, device=features.device)  # back pointers
 
         # Initialize the viterbi variables in log space
         max_score = torch.full((B, C), IMPOSSIBLE, device=features.device)  # [B, C]

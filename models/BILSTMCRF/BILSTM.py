@@ -11,7 +11,7 @@ class BiRnnCrf(nn.Module):
 
         self.embedding = nn.Embedding.from_pretrained(embeddings, freeze=False)
 
-        self.rnn = nn.LSTM(300, hidden_dim // 2, num_layers=num_rnn_layers,
+        self.lstm = nn.LSTM(300, hidden_dim // 2, num_layers=num_rnn_layers,
                        bidirectional=True, dropout=dropout, batch_first=True)
         self.crf = CRF(hidden_dim, self.tagset_size)
         self.dropout = nn.Dropout(p=dropout)
@@ -40,7 +40,7 @@ class BiRnnCrf(nn.Module):
         # 處理經過 padding 的 data，會去除 padding 且打包成 torch nn 能處理的形式
         pack_sequence = pack_padded_sequence(embeds, lengths=sorted_seq_length, batch_first=True)
         # 訓練
-        packed_output, _ = self.rnn(pack_sequence)
+        packed_output, _ = self.lstm(pack_sequence)
         # 解包，還原成 padding 的樣子
         lstm_out, _ = pad_packed_sequence(packed_output, batch_first=True)
         _, unperm_idx = perm_idx.sort()
@@ -82,7 +82,7 @@ class CRF(nn.Module):
         self.start_idx = self.num_tags - 2
         self.stop_idx = self.num_tags - 1
 
-        self.fc = nn.Linear(in_features, self.num_tags)
+        self.linear = nn.Linear(in_features, self.num_tags)
 
         # transition factor, Tij mean transition from j to i，能被 gradient 優化
         self.transitions = nn.Parameter(torch.randn(self.num_tags, self.num_tags), requires_grad=True)
@@ -91,25 +91,23 @@ class CRF(nn.Module):
 
     def forward(self, features, masks):
        
-        features = self.fc(features)
-        return self.__viterbi_decode(features, masks[:, :features.size(1)].float())
+        features = self.linear(features)
+        return self.__viterbi_decode(features, masks[:, :features.shape[1]].float())
 
     def loss(self, features, tags, masks):
         
         # lstm output dim -> tags num: 9
         # features [batch size, seq size, tags num]
-        features = self.fc(features)
-        # 此 batch 中最長的 seq size
-        L = features.size(1)
+        features = self.linear(features)
         
         # masks [batch size, 35]
         # masks_ [batch size, 此 batch 中最長的 seq len] 定義哪些是不是 pad
-        masks_ = masks[:, :L].float()
+        masks_ = masks[:, :features.shape[1]].float()
 
         # forward algorithm 高效算出預測路徑得分
         forward_score = self.__forward_algorithm(features, masks_)
         # 算 tag 的真實路徑得分
-        gold_score = self.__score_sentence(features, tags[:, :L].long(), masks_)
+        gold_score = self.__score_sentence(features, tags[:, :features.shape[1]].long(), masks_)
         # - log(P(y_bar|x)) = log(exp(score(x,y))) - score(x,y_bar)
         loss = (forward_score - gold_score).mean()
         return loss
@@ -147,22 +145,20 @@ class CRF(nn.Module):
         return score
 
     def __viterbi_decode(self, features, masks):
-        
-        B, L, C = features.shape
 
-        bps = torch.zeros(B, L, C, dtype=torch.long, device=features.device)  # back pointers
+        backpointers = torch.zeros(features.shape[0], features.shape[1], features.shape[2], dtype=torch.long, device=features.device)  # back pointers
 
         # Initialize the viterbi variables in log space
-        max_score = torch.full((B, C), IMPOSSIBLE, device=features.device)  # [B, C]
+        max_score = torch.full((features.shape[0], features.shape[2]), IMPOSSIBLE, device=features.device)  # [B, C]
         max_score[:, self.start_idx] = 0
 
-        for t in range(L):
+        for t in range(features.shape[1]):
             mask_t = masks[:, t].unsqueeze(1)  # [B, 1]
             emit_score_t = features[:, t]  # [B, C]
 
             # [B, 1, C] + [C, C]
             acc_score_t = max_score.unsqueeze(1) + self.transitions  # [B, C, C]
-            acc_score_t, bps[:, t, :] = acc_score_t.max(dim=-1)
+            acc_score_t, backpointers[:, t, :] = acc_score_t.max(dim=-1)
             acc_score_t += emit_score_t
             max_score = acc_score_t * mask_t + max_score * (1 - mask_t)  # max_score or acc_score_t
 
@@ -172,16 +168,16 @@ class CRF(nn.Module):
 
         # Follow the back pointers to decode the best path.
         best_paths = []
-        bps = bps.cpu().numpy()
-        for b in range(B):
+        backpointers = backpointers.cpu().numpy()
+        for b in range(features.shape[0]):
             # 預測好的 seq -> tag
             best_tag_b = best_tag[b].item()
             # 找出 seq padding 前真實長度
             seq_len = int(masks[b, :].sum().item())
 
             best_path = [best_tag_b]
-            for bps_t in reversed(bps[b, :seq_len]):
-                best_tag_b = bps_t[best_tag_b]
+            for backpointers_t in reversed(backpointers[b, :seq_len]):
+                best_tag_b = backpointers_t[best_tag_b]
                 best_path.append(best_tag_b)
             # drop the last tag and reverse the left
             best_paths.append(best_path[-2::-1])
@@ -190,16 +186,14 @@ class CRF(nn.Module):
 
     def __forward_algorithm(self, features, masks):
         
-        B, L, C = features.shape
-        
         # scores [B, C]: full of IMPOSSIBLE
-        scores = torch.full((B, C), IMPOSSIBLE, device=features.device)  # [B, C]
+        scores = torch.full((features.shape[0], features.shape[2]), IMPOSSIBLE, device=features.device)  # [B, C]
         scores[:, self.start_idx] = 0.
         # transition matrix 增加一維在 shape 0的位置 [C, C] -> [1, C, C]
         trans = self.transitions.unsqueeze(0)  # [1, C, C]
 
         # Iterate through the sentence
-        for t in range(L):
+        for t in range(features.shape[1]):
             # features[:, t](取每個 seq 的第 t 個預測值) 增加一維在 shape 2 的位置 [B, C] -> [B, C, 1]
             emit_score_t = features[:, t].unsqueeze(2)  # [B, C, 1]
             
